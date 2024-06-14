@@ -1,4 +1,4 @@
-use std::{collections::{vec_deque, VecDeque}, io::{Read, Write}, mem::size_of, os::windows::fs::MetadataExt, str::FromStr, sync::Arc};
+use std::{collections::VecDeque, io::{Read, Write}, mem::size_of, str::FromStr, sync::Arc};
 
 use tokio::sync::{Mutex, Semaphore};
 
@@ -60,7 +60,8 @@ impl FileReader {
     pub fn new(path: &str) -> Self {
         let path = std::path::PathBuf::from(path);
         let file_handle = std::fs::File::open(&path).unwrap();
-        let file_size = file_handle.metadata().unwrap().file_size();
+        let meta = file_handle.metadata().unwrap();
+        let file_size = meta.len();
 
         let payload = Arc::new((
             Mutex::new(file_handle),
