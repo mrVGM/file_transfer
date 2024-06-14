@@ -5,6 +5,8 @@ mod streaming;
 
 #[tokio::main]
 async fn main() {
+    let start_time = std::time::SystemTime::now();
+
     let command_line: Vec<String> = std::env::args().collect();
 
     if command_line.len() < 2 {
@@ -50,5 +52,8 @@ async fn main() {
         receiver.receive().await;
     }
 
-    println!("Done");
+    let finish_time = std::time::SystemTime::now();
+    let duration = finish_time.duration_since(start_time).unwrap();
+
+    println!("Done in {}", duration.as_millis());
 }
