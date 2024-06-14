@@ -1,4 +1,4 @@
-use std::{mem::size_of, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{collections::VecDeque, mem::size_of, net::SocketAddr, str::FromStr, sync::Arc};
 
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener, sync::{Mutex, RwLock}};
 
@@ -86,7 +86,7 @@ impl Sender {
 pub struct Receiver {
     file_writer: Arc<files::FileWriter>,
     socket_addr: SocketAddr,
-    pub progress: Arc<RwLock<(u64, u64)>>
+    pub progress: Arc<RwLock<(u64, u64, VecDeque<(u64, std::time::SystemTime)>)>>
 }
 
 impl Receiver {
@@ -95,7 +95,7 @@ impl Receiver {
         Receiver {
             file_writer: Arc::new(writter),
             socket_addr: addr,
-            progress: Arc::new(RwLock::new((0, size)))
+            progress: Arc::new(RwLock::new((0, size, VecDeque::<(u64, std::time::SystemTime)>::new())))
         }
     }
 
@@ -185,8 +185,14 @@ impl Receiver {
                             }
 
                             read += bytes;
-                            let (cur, total) = &mut *progress.write().await;
+                            let (cur, total, stamps) = &mut *progress.write().await;
                             *cur += bytes as u64;
+                            let now = std::time::SystemTime::now();
+                            stamps.push_back((*cur, now));
+
+                            while stamps.len() > 10 {
+                                stamps.pop_front();
+                            }
                         }
 
                         if read < size {

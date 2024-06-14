@@ -56,12 +56,24 @@ async fn main() {
 
         tokio::spawn(async move {
             loop {
-                let (cur, total) = &*progress.read().await;
+                let (cur, total, stamps) = &*progress.read().await;
+                let mut speed = 0.0;
+
+                if stamps.len() > 1 {
+                    let fst = stamps.front().unwrap();
+                    let last = stamps.back().unwrap();
+                    let duration = last.1.duration_since(fst.1).unwrap();
+
+                    speed = (last.0 - fst.0) as f64 / (duration.as_millis() as f64 / 1000.0);
+                }
+
+                println!("Progress: {}/{}, Speed: {} B/s", *cur, *total, speed);
+
                 if *cur >= *total {
                     break;
                 }
 
-                println!("Progress: {}/{}", *cur, *total);
+
                 sleep(Duration::from_millis(100)).await;
             }
         });
