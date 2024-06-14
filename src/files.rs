@@ -156,6 +156,10 @@ impl FileWriter {
         }
     }
 
+    pub fn get_size(&self) -> u64 {
+        self.size
+    }
+
     pub async fn push(&self, chunk: FileChunk) {
         let ((semaphore, reminder), chunks) = &*self.payload;
         

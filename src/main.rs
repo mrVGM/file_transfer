@@ -1,4 +1,6 @@
-use std::{net::SocketAddr, str::FromStr};
+use std::{net::SocketAddr, str::FromStr, time::Duration};
+
+use tokio::time::sleep;
 
 mod files;
 mod streaming;
@@ -49,6 +51,21 @@ async fn main() {
 
         let writer = files::FileWriter::new(cur_dir.to_str().unwrap(), file, size);
         let receiver = streaming::Receiver::new(writer, socket_addr);
+
+        let progress = receiver.progress.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let (cur, total) = &*progress.read().await;
+                if *cur >= *total {
+                    break;
+                }
+
+                println!("Progress: {}/{}", *cur, *total);
+                sleep(Duration::from_millis(100)).await;
+            }
+        });
+
         receiver.receive().await;
     }
 

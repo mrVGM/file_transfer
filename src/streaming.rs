@@ -1,6 +1,6 @@
 use std::{mem::size_of, net::SocketAddr, str::FromStr, sync::Arc};
 
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener, sync::Mutex};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener, sync::{Mutex, RwLock}};
 
 use crate::files::{self, FileChunk};
 
@@ -86,13 +86,16 @@ impl Sender {
 pub struct Receiver {
     file_writer: Arc<files::FileWriter>,
     socket_addr: SocketAddr,
+    pub progress: Arc<RwLock<(u64, u64)>>
 }
 
 impl Receiver {
     pub fn new(writter: files::FileWriter, addr: SocketAddr) -> Self {
+        let size = writter.get_size();
         Receiver {
             file_writer: Arc::new(writter),
-            socket_addr: addr
+            socket_addr: addr,
+            progress: Arc::new(RwLock::new((0, size)))
         }
     }
 
@@ -114,6 +117,7 @@ impl Receiver {
             let writer = writer.clone();
             let semaphore = semaphore.clone();
 
+            let progress = self.progress.clone();
             tokio::spawn(async move {
                 let sock = tokio::net::TcpSocket::new_v4().unwrap();
                 let mut stream = sock.connect(addr).await.unwrap();
@@ -181,6 +185,8 @@ impl Receiver {
                             }
 
                             read += bytes;
+                            let (cur, total) = &mut *progress.write().await;
+                            *cur += bytes as u64;
                         }
 
                         if read < size {
