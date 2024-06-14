@@ -32,7 +32,7 @@ impl Sender {
     pub async fn start(&self) {
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(0));
-        let semaphore_clone = Arc::new(tokio::sync::Semaphore::new(0));
+        let semaphore_clone = semaphore.clone();
         let file_reader = self.file_reader.clone();
         let listener = self.listener.clone();
 
@@ -67,7 +67,6 @@ impl Sender {
                     {
                         let connections = &mut *connections.lock().await;
                         *connections = *connections - 1;
-
                         if *connections == 0 {
                             semaphore.add_permits(1);
                         }
@@ -78,7 +77,7 @@ impl Sender {
 
         let permit = semaphore_clone.acquire().await.unwrap();
         permit.forget();
-
+        
         listen.abort();
     }
 }
