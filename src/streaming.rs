@@ -215,13 +215,7 @@ impl Receiver {
                                     diff /= (1024 * 1024) as f64;
                                     let mut time_diff = last.1.duration_since(fst.1).unwrap().as_millis() as f64;
                                     time_diff /= 1000.0;
-
-                                    if time_diff < 0.0001 {
-                                        0.0
-                                    }
-                                    else {
-                                        diff / time_diff
-                                    }
+                                    diff / time_diff
                                 }
                             };
 

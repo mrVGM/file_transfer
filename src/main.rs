@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, str::FromStr, time::Duration};
+use std::{net::SocketAddr, os::windows::process, str::FromStr, sync::Arc, time::Duration};
 
 use tokio::time::sleep;
 
@@ -53,16 +53,33 @@ async fn main() {
         let receiver = streaming::Receiver::new(writer, socket_addr);
 
         type Progress = (u64, u64, f64);
-
         let (send_ch, recv_ch) = std::sync::mpsc::channel::<Progress>();
-/*
+
         tokio::spawn(async move {
+            let mut last_log = std::time::SystemTime::now();
+            let start_time = last_log;
+            
             loop {
-                println!("Progress: {}/{}, Speed: {} B/s", 0, size, 0);
-                sleep(Duration::from_millis(100)).await;
+                let progress = recv_ch.recv();
+                
+                if let Ok(progress) = progress {
+                    let now = std::time::SystemTime::now();
+                    let duration = now.duration_since(last_log).unwrap().as_millis();
+
+                    if duration >= 100 {
+                        println!("Progress: {}/{}, Speed: {} B/s", progress.0, progress.1, progress.2);
+                        last_log = now;
+                    }
+                }
+                else {
+                    break;
+                }
             }
+
+            let end_time = std::time::SystemTime::now();
+            let full_steam_duration = end_time.duration_since(start_time).unwrap();
+            println!("Full stream duration: {}", full_steam_duration.as_millis());
         });
-*/
         
         receiver.receive(send_ch).await;
     }
