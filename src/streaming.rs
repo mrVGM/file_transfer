@@ -209,7 +209,7 @@ impl Receiver {
                                 }
                                 else {
                                     let fst = samples.front().unwrap();
-                                    let last = samples.front().unwrap();
+                                    let last = samples.back().unwrap();
 
                                     let mut diff = (last.0 - fst.0) as f64;
                                     diff /= (1024 * 1024) as f64;

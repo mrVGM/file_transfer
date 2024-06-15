@@ -1,6 +1,4 @@
-use std::{net::SocketAddr, os::windows::process, str::FromStr, sync::Arc, time::Duration};
-
-use tokio::time::sleep;
+use std::{net::SocketAddr, str::FromStr};
 
 mod files;
 mod streaming;
@@ -67,8 +65,12 @@ async fn main() {
                     let duration = now.duration_since(last_log).unwrap().as_millis();
 
                     if duration >= 100 {
-                        println!("Progress: {}/{}, Speed: {} B/s", progress.0, progress.1, progress.2);
+                        println!("Progress: {}/{}, Speed: {} MB/s", progress.0, progress.1, progress.2);
                         last_log = now;
+                    }
+
+                    if progress.0 >= progress.1 {
+                        break;
                     }
                 }
                 else {
