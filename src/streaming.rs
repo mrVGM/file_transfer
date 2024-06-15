@@ -85,8 +85,7 @@ impl Sender {
 
 pub struct Receiver {
     file_writer: Arc<files::FileWriter>,
-    socket_addr: SocketAddr,
-    pub progress: Arc<RwLock<(u64, u64, VecDeque<(u64, std::time::SystemTime)>)>>
+    socket_addr: SocketAddr
 }
 
 impl Receiver {
@@ -95,11 +94,10 @@ impl Receiver {
         Receiver {
             file_writer: Arc::new(writter),
             socket_addr: addr,
-            progress: Arc::new(RwLock::new((0, size, VecDeque::<(u64, std::time::SystemTime)>::new())))
         }
     }
 
-    pub async fn receive(&self) {
+    pub async fn receive(&self, sender: std::sync::mpsc::Sender<(u64, u64, f64)>) {
         let writer = self.file_writer.clone();
         let writer_clone = writer.clone();
 
@@ -110,14 +108,24 @@ impl Receiver {
             writer_clone.write().await;
             semaphore_clone.add_permits(1);
         });
+
+        let file_size = writer.get_size();
         
         let num_sockets: u8 = 2;
+
+        let bytes_received = Arc::new(Mutex::new(0 as u64));
+        let samples = Arc::new(Mutex::new(VecDeque::<(u64, std::time::SystemTime)>::new()));
+
+        let sender = Arc::new(sender);
         for _ in 0..num_sockets {
             let addr = self.socket_addr;
             let writer = writer.clone();
             let semaphore = semaphore.clone();
 
-            let progress = self.progress.clone();
+            let sender = sender.clone();
+            let bytes_received = bytes_received.clone();
+            let samples = samples.clone();
+
             tokio::spawn(async move {
                 let sock = tokio::net::TcpSocket::new_v4().unwrap();
                 let mut stream = sock.connect(addr).await.unwrap();
@@ -185,13 +193,14 @@ impl Receiver {
                             }
 
                             read += bytes;
-                            let (cur, total, stamps) = &mut *progress.write().await;
-                            *cur += bytes as u64;
-                            let now = std::time::SystemTime::now();
-                            stamps.push_back((*cur, now));
 
-                            while stamps.len() > 10 {
-                                stamps.pop_front();
+                            let bytes_received = &mut *bytes_received.lock().await;
+                            let samples = &mut *samples.lock().await;
+                            *bytes_received += bytes as u64;
+                            samples.push_back((*bytes_received, std::time::SystemTime::now()));
+                            
+                            while samples.len() > 10 {
+                                samples.pop_front();
                             }
                         }
 

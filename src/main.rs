@@ -52,33 +52,19 @@ async fn main() {
         let writer = files::FileWriter::new(cur_dir.to_str().unwrap(), file, size);
         let receiver = streaming::Receiver::new(writer, socket_addr);
 
-        let progress = receiver.progress.clone();
+        type Progress = (u64, u64, f64);
 
+        let (send_ch, recv_ch) = std::sync::mpsc::channel::<Progress>();
+/*
         tokio::spawn(async move {
             loop {
-                let (cur, total, stamps) = &*progress.read().await;
-                let mut speed = 0.0;
-
-                if stamps.len() > 1 {
-                    let fst = stamps.front().unwrap();
-                    let last = stamps.back().unwrap();
-                    let duration = last.1.duration_since(fst.1).unwrap();
-
-                    speed = (last.0 - fst.0) as f64 / (duration.as_millis() as f64 / 1000.0);
-                }
-
-                println!("Progress: {}/{}, Speed: {} B/s", *cur, *total, speed);
-
-                if *cur >= *total {
-                    break;
-                }
-
-
+                println!("Progress: {}/{}, Speed: {} B/s", 0, size, 0);
                 sleep(Duration::from_millis(100)).await;
             }
         });
-
-        receiver.receive().await;
+*/
+        
+        receiver.receive(send_ch).await;
     }
 
     let finish_time = std::time::SystemTime::now();
