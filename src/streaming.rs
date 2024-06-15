@@ -202,6 +202,30 @@ impl Receiver {
                             while samples.len() > 10 {
                                 samples.pop_front();
                             }
+
+                            let speed = {
+                                if samples.len() < 2 {
+                                    0.0
+                                }
+                                else {
+                                    let fst = samples.front().unwrap();
+                                    let last = samples.front().unwrap();
+
+                                    let mut diff = (last.0 - fst.0) as f64;
+                                    diff /= (1024 * 1024) as f64;
+                                    let mut time_diff = last.1.duration_since(fst.1).unwrap().as_millis() as f64;
+                                    time_diff /= 1000.0;
+
+                                    if time_diff < 0.0001 {
+                                        0.0
+                                    }
+                                    else {
+                                        diff / time_diff
+                                    }
+                                }
+                            };
+
+                            sender.send((*bytes_received, file_size, speed)).unwrap();
                         }
 
                         if read < size {
