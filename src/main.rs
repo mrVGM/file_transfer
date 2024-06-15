@@ -29,7 +29,7 @@ async fn main() {
             file = cur_dir.join(file);
         }
 
-        let reader = files::FileReader::new("C:\\Users\\Vas\\dev\\rust\\file_transfer\\1\\pakchunk1-Windows.pak");
+        let reader = files::FileReader::new(file.to_str().unwrap());
         let size = reader.get_size();
         let sender = streaming::Sender::new(reader).await;
         let addr = sender.get_addr();
