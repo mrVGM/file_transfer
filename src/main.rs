@@ -1,4 +1,6 @@
-use std::{net::SocketAddr, str::FromStr};
+use std::{net::SocketAddr, str::FromStr, time::Duration};
+
+use tokio::time::sleep;
 
 mod files;
 mod streaming;
@@ -51,31 +53,24 @@ async fn main() {
         let receiver = streaming::Receiver::new(writer, socket_addr);
 
         type Progress = (u64, u64, f64);
-        let (send_ch, recv_ch) = std::sync::mpsc::channel::<Progress>();
+        let (send_ch, mut recv_ch) = tokio::sync::watch::channel::<Progress>((0, 0, 0.0));
 
         tokio::spawn(async move {
-            let mut last_log = std::time::SystemTime::now();
-            let start_time = last_log;
+            let start_time = std::time::SystemTime::now();
             
             loop {
-                let progress = recv_ch.recv();
+                let changed = recv_ch.changed().await;
                 
-                if let Ok(progress) = progress {
-                    let now = std::time::SystemTime::now();
-                    let duration = now.duration_since(last_log).unwrap().as_millis();
-
-                    if duration >= 100 {
-                        println!("Progress: {}/{}, Speed: {} MB/s", progress.0, progress.1, progress.2);
-                        last_log = now;
-                    }
-
-                    if progress.0 >= progress.1 {
-                        break;
-                    }
-                }
-                else {
+                if changed.is_err() {
                     break;
                 }
+                let progress = *recv_ch.borrow_and_update();
+                if progress.0 >= progress.1 {
+                    break;
+                }
+
+                println!("Progress: {}/{}, Speed: {} MB/s", progress.0, progress.1, progress.2);
+                sleep(Duration::from_millis(500)).await;
             }
 
             let end_time = std::time::SystemTime::now();

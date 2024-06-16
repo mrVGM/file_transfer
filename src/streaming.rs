@@ -97,7 +97,7 @@ impl Receiver {
         }
     }
 
-    pub async fn receive(&self, sender: std::sync::mpsc::Sender<(u64, u64, f64)>) {
+    pub async fn receive(&self, sender: tokio::sync::watch::Sender<(u64, u64, f64)>) {
         let writer = self.file_writer.clone();
         let writer_clone = writer.clone();
 
