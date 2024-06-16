@@ -12,6 +12,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 mod files;
 mod streaming;
 mod ui;
+mod pairing;
 
 pub struct ScopedRoutine(tokio::task::JoinHandle<()>);
 impl ScopedRoutine {

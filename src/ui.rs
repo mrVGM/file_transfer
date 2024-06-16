@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-use ratatui::{style::{Color, Style, Styled, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
+use ratatui::{style::{Color, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
+
+use crate::pairing::{PairingClient, PairingServer};
 
 pub enum InputCommand {
     None,
@@ -20,7 +22,8 @@ enum AppMode {
 enum AppState {
     Idle,
     ChoosingNetworkInterface,
-    LookingForServers
+    LookingForServers(PairingClient),
+    WaitingForConnection(PairingServer)
 }
 
 struct ServerEntry(String, SocketAddr);
@@ -33,6 +36,7 @@ enum UIItem {
     Cancel,
     NetInterface(NetworkInterface),
     FindServer(String),
+    ServerEntry(String, SocketAddr),
     Quit
 }
 
@@ -66,6 +70,9 @@ impl UIItem {
             }
             Self::FindServer(name) => {
                 ListItem::new(format!("Find Server {}", name))
+            }
+            Self::ServerEntry(name, _) => {
+                ListItem::new(format!("    {}", name))
             }
             Self::Quit => {
                 ListItem::new("Quit")
@@ -151,8 +158,14 @@ impl App {
                     }
 
                     UIItem::FindServer(_) => {
-                        self.app_state = AppState::LookingForServers;
+                        if let Some(net_interface) = &self.net_interface {
+                            self.app_state = AppState::LookingForServers(PairingClient::new(net_interface.clone()));
+                        }
                     }
+                    UIItem::RunServer => {
+                        self.app_state = AppState::WaitingForConnection(PairingServer::new());
+                    }
+
                     _ => {}
                 }
             }
@@ -207,7 +220,15 @@ impl App {
                 }
                 self.ui_items.push(UIItem::Cancel);
             }
-            AppState::LookingForServers => {
+            AppState::LookingForServers(client) => {
+                let servers = client.get_servers();
+                let servers = &*servers.read().unwrap();
+                for s in servers {
+                    self.ui_items.push(UIItem::ServerEntry(String::from(&s.0), s.1));
+                }
+                self.ui_items.push(UIItem::Cancel);
+            }
+            AppState::WaitingForConnection(_) => {
                 self.ui_items.push(UIItem::Cancel);
             }
         }
