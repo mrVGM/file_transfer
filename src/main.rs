@@ -5,6 +5,21 @@ use tokio::time::sleep;
 mod files;
 mod streaming;
 
+pub struct ScopedRoutine(tokio::task::JoinHandle<()>);
+impl ScopedRoutine {
+    pub fn new(handle: tokio::task::JoinHandle<()>) -> Self {
+        ScopedRoutine(handle)
+    } 
+}
+
+impl Drop for ScopedRoutine {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+
+
 #[tokio::main]
 async fn main() {
     let start_time = std::time::SystemTime::now();

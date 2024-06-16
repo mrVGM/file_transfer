@@ -1,3 +1,5 @@
+use crate::ScopedRoutine;
+
 use std::{collections::VecDeque, io::{Read, Write}, mem::size_of, str::FromStr, sync::Arc};
 
 use tokio::sync::{Mutex, Semaphore};
@@ -43,17 +45,12 @@ impl FileChunk {
     }
 }
 
+
 pub struct FileReader {
     path: std::path::PathBuf,
     size: u64,
     payload: Arc<(Mutex<std::fs::File>, (Semaphore, Semaphore), Mutex<VecDeque<FileChunk>>)>,
-    read_routine: tokio::task::JoinHandle<()>
-}
-
-impl Drop for FileReader {
-    fn drop(&mut self) {
-        self.read_routine.abort();
-    }
+    read_routine: ScopedRoutine
 }
 
 impl FileReader {
@@ -103,7 +100,7 @@ impl FileReader {
             path: path,
             size: file_size,
             payload: payload_clone,
-            read_routine: read_routine
+            read_routine: ScopedRoutine::new(read_routine)
         }
     }
 

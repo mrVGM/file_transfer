@@ -2,7 +2,7 @@ use std::{collections::VecDeque, mem::size_of, net::SocketAddr, str::FromStr, sy
 
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener, sync::{Mutex, RwLock}};
 
-use crate::files::{self, FileChunk};
+use crate::{files::{self, FileChunk}, ScopedRoutine};
 
 pub struct Sender {
     file_reader: Arc<files::FileReader>,
@@ -75,10 +75,10 @@ impl Sender {
             }
         });
 
+        let _listen = ScopedRoutine::new(listen);
+
         let permit = semaphore_clone.acquire().await.unwrap();
         permit.forget();
-        
-        listen.abort();
     }
 }
 
