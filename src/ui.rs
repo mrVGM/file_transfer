@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use ratatui::{style::{Color, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
+use tokio::net::TcpStream;
 
-use crate::pairing::{PairingClient, PairingServer};
+use crate::pairing::{self, PairingClient, PairingServer};
 
 pub enum InputCommand {
     None,
@@ -23,7 +24,9 @@ enum AppState {
     Idle,
     ChoosingNetworkInterface,
     LookingForServers(PairingClient),
-    WaitingForConnection(PairingServer)
+    WaitingForConnection(PairingServer),
+    ServerConnected(pairing::ServerConnected),
+    ClientConnected(pairing::ClientConnected)
 }
 
 struct ServerEntry(String, SocketAddr);
@@ -166,6 +169,17 @@ impl App {
                         self.app_state = AppState::WaitingForConnection(PairingServer::new());
                     }
 
+                    UIItem::ServerEntry(_, addr) => {
+                        let stream = std::net::TcpStream::connect(addr);
+                        if let Ok(stream) = stream {
+                            let stream = tokio::net::TcpStream::from_std(stream).unwrap();
+                            self.app_state = AppState::ClientConnected(pairing::ClientConnected(stream));
+                        }
+                        else {
+                            self.app_state = AppState::Idle;
+                        }
+                    }
+
                     _ => {}
                 }
             }
@@ -228,8 +242,19 @@ impl App {
                 }
                 self.ui_items.push(UIItem::Cancel);
             }
-            AppState::WaitingForConnection(_) => {
-                self.ui_items.push(UIItem::Cancel);
+            AppState::WaitingForConnection(server) => {
+                if let Some(stream) = server.try_get_stream() {
+                    self.app_state = AppState::ServerConnected(pairing::ServerConnected(stream));
+                }
+                else {
+                    self.ui_items.push(UIItem::Cancel);
+                }
+            }
+            AppState::ServerConnected(_) => {
+                self.ui_items.push(UIItem::Quit);
+            }
+            AppState::ClientConnected(_) => {
+                self.ui_items.push(UIItem::Quit);
             }
         }
 

@@ -2,27 +2,42 @@ use std::{collections::HashSet, net::SocketAddr, str::FromStr, sync::{Arc, RwLoc
 
 use network_interface::NetworkInterface;
 use serde_json::json;
-use tokio::{net::{TcpListener, UdpSocket}, time::sleep};
+use tokio::{net::{TcpListener, TcpStream, UdpSocket}, time::sleep};
 
 use crate::ScopedRoutine;
 
-pub struct PairingServer(ScopedRoutine);
+struct PairingServerUDP(std::sync::mpsc::Receiver<bool>, tokio::sync::watch::Sender<bool>);
 
-impl PairingServer {
-    pub fn new() -> Self {
-        let hello_server = std::net::UdpSocket::bind("0.0.0.0:4040").unwrap();
-        let listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+impl Drop for PairingServerUDP {
+    fn drop(&mut self) {
+        self.1.send(true).unwrap();
 
-        let hello_server = UdpSocket::from_std(hello_server).unwrap();
-        let listener = TcpListener::from_std(listener).unwrap();
+        tokio::spawn(async move {
+            let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            socket.send_to("Hello!".as_bytes(), SocketAddr::from_str("127.0.0.1:4040").unwrap()).unwrap();
+        });
 
-        let port = listener.local_addr().unwrap().port();
-        let host = hostname::get().unwrap();
+        self.0.recv().unwrap();
+    }
+}
 
-        let hello = tokio::spawn(async move {
+impl PairingServerUDP {
+    pub fn new(port: u16) -> Self {
+        let (stop_channel_send, mut stop_channel_recv) = tokio::sync::watch::channel(false);
+        let (finish_channel_send, finish_channel_recv) = std::sync::mpsc::channel::<bool>();
+        
+        tokio::spawn(async move {
+            let hello_server = tokio::net::UdpSocket::bind("0.0.0.0:4040").await.unwrap();
+            let host = hostname::get().unwrap();
+
             let mut buff: [u8; 6] = [0; 6];
             loop {
                 let (read, socket_addr) = hello_server.recv_from(&mut buff).await.unwrap();
+                let stop = *stop_channel_recv.borrow_and_update();
+                if stop {
+                    break;
+                }
+
                 if read != 6 {
                     continue;
                 }
@@ -40,9 +55,57 @@ impl PairingServer {
                 let message = json.to_string();
                 hello_server.send_to(message.as_bytes(), socket_addr).await.unwrap();
             }
+
+            finish_channel_send.send(true).unwrap();
         });
 
-        PairingServer(ScopedRoutine(hello))
+        PairingServerUDP(finish_channel_recv, stop_channel_send)
+    }
+}
+
+
+struct ConnectionListener(u16, std::sync::mpsc::Receiver<TcpStream>);
+impl ConnectionListener {
+    fn new() -> ConnectionListener {
+        let (send, recv) = std::sync::mpsc::channel::<TcpStream>();
+        let (send_port, recv_port) = std::sync::mpsc::channel::<u16>();
+        
+        tokio::spawn(async move {
+            let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            send_port.send(port);
+
+            let (stream, _) = listener.accept().await.unwrap();
+            send.send(stream);
+        });
+
+        let port = recv_port.recv().unwrap();
+
+        ConnectionListener(port, recv)
+    }
+}
+
+impl Drop for ConnectionListener {
+    fn drop(&mut self) {
+        let addr = format!("127.0.0.1:{}", self.0);
+        let socket = std::net::TcpStream::connect(addr);
+    }
+}
+
+pub struct PairingServer(ConnectionListener, PairingServerUDP);
+impl PairingServer {
+    pub fn new() -> Self {
+        let connection_listener = ConnectionListener::new();
+        let pairing_server_udp = PairingServerUDP::new(connection_listener.0);
+
+        PairingServer(connection_listener, pairing_server_udp)
+    }
+
+    pub fn try_get_stream(&self) -> Option<TcpStream> {
+        match self.0.1.try_recv() {
+            Ok(stream) => Some(stream),
+            _ => None
+        }
     }
 }
 
@@ -105,3 +168,7 @@ impl PairingClient {
         PairingClient(net_interface, ScopedRoutine::new(lookup), servers_found)
     }
 }
+
+
+pub struct ServerConnected(pub TcpStream);
+pub struct ClientConnected(pub TcpStream);
