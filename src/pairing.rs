@@ -1,11 +1,11 @@
 use core::str;
-use std::{collections::HashSet, net::SocketAddr, str::FromStr, sync::{Arc, RwLock}, time::Duration};
+use std::{collections::HashSet, net::SocketAddr, path::Path, str::FromStr, sync::{Arc, RwLock}, time::Duration};
 
 use network_interface::NetworkInterface;
 use serde_json::json;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream, UdpSocket}, time::sleep};
 
-use crate::ScopedRoutine;
+use crate::{utils::{self, FileData}, ScopedRoutine};
 
 struct PairingServerUDP(std::sync::mpsc::Receiver<bool>, tokio::sync::watch::Sender<bool>);
 
@@ -174,6 +174,8 @@ impl PairingClient {
 pub struct ServerConnected;
 pub struct ClientConnected;
 
+type ServerPayload = (TcpListener, Vec<FileData>);
+
 impl ServerConnected {
     pub fn new(stream: TcpStream) -> Self {
         tokio::spawn(async move {
@@ -181,6 +183,11 @@ impl ServerConnected {
             let mut buff: [u8; 1024] = [0; 1024];
             let mut cnt: u32 = 0;
             let mut str_buff = String::new();
+
+            let data_listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
+
+            let file_list = utils::get_files();
+            let mut payload = (data_listener, file_list);
 
             loop {
                 let read = stream.read(&mut buff).await.unwrap();
@@ -199,7 +206,7 @@ impl ServerConnected {
                     }
 
                     if cnt == 0 {
-                        ServerConnected::handle_req(&mut stream, &str_buff).await;
+                        ServerConnected::handle_req(&mut stream, &str_buff, &mut payload).await;
                         str_buff.clear();
                     }
                 }
@@ -209,8 +216,38 @@ impl ServerConnected {
         ServerConnected
     }
 
-    async fn handle_req(stream: &mut TcpStream, req: &str) {
-        let json = serde_json::Value::from_str(req).unwrap();
+    async fn handle_req(stream: &mut TcpStream, req: &str, payload: &mut ServerPayload) {
+        let mut json = serde_json::Value::from_str(req).unwrap();
+
+        let subject = String::from(json["subject"].as_str().unwrap());
+
+        if subject == "introduction" {
+            let host = hostname::get().unwrap();
+            let host = host.to_str().unwrap();
+
+            json = json!({
+                "subject": "introduction",
+                "name": host
+            });
+        }
+
+        if subject == "file_list" {
+            let file_list: Vec<serde_json::Value> = payload.1.iter().map(|x| {
+                let path = String::from(x.relative_path.to_str().unwrap());
+                let size = x.size;
+                json!({
+                    "path": path,
+                    "size": size
+                })
+            }).collect();
+
+            let port = payload.0.local_addr().unwrap().port();
+
+            json = json!({
+                "data_port": port,
+                "file_list": file_list
+            });
+        }
 
         stream.write(json.to_string().as_bytes()).await.unwrap();
     }
@@ -231,14 +268,21 @@ impl ClientConnected {
             });
 
             let resp = ClientConnected::make_request(id_req, &mut stream).await;
-
             println!("resp: {}", resp.to_string());
+            
+            let file_list = json!({
+                "subject": "file_list"
+            });
+            
+            let resp = ClientConnected::make_request(file_list, &mut stream).await;
+            
+            println!("File List: {}", resp.to_string());
         });
 
         ClientConnected
     }
 
-    async fn make_request(req: serde_json::Value, stream: &mut TcpStream) ->serde_json::Value {
+    async fn make_request(req: serde_json::Value, stream: &mut TcpStream) -> serde_json::Value {
         let str = req.to_string();
         stream.write(str.as_bytes()).await.unwrap();
 

@@ -13,6 +13,7 @@ mod files;
 mod streaming;
 mod ui;
 mod pairing;
+mod utils;
 
 pub struct ScopedRoutine(tokio::task::JoinHandle<()>);
 impl ScopedRoutine {
