@@ -32,7 +32,7 @@ enum AppState {
 struct ServerEntry(String, SocketAddr);
 
 enum UIItem {
-    ComputerName,
+    Label(String),
     ChangeMode(AppMode),
     RunServer,
     ChooseNetInterface(String),
@@ -46,13 +46,9 @@ enum UIItem {
 impl UIItem {
     fn to_list_item(&self) -> ListItem {
         match &self {
-            Self::ComputerName => {
-                let host = hostname::get().unwrap();
-                let label = String::from("Computer Name: ") + &match host.into_string() {
-                    Ok(s) => s,
-                    _ => String::from("N/A")
-                };
-                ListItem::new(label)
+            Self::Label(label) => {
+                let tmp: &str = &*label;
+                ListItem::new(tmp)
             }
             Self::ChangeMode(app_mode) => {
                 let label = match &app_mode {
@@ -173,7 +169,7 @@ impl App {
                         let stream = std::net::TcpStream::connect(addr);
                         if let Ok(stream) = stream {
                             let stream = tokio::net::TcpStream::from_std(stream).unwrap();
-                            self.app_state = AppState::ClientConnected(pairing::ClientConnected(stream));
+                            self.app_state = AppState::ClientConnected(pairing::ClientConnected::new(stream));
                         }
                         else {
                             self.app_state = AppState::Idle;
@@ -192,7 +188,13 @@ impl App {
 
         match &self.app_state {
             AppState::Idle => {
-                self.ui_items.push(UIItem::ComputerName);
+                let host = hostname::get().unwrap();
+                let label = String::from("Computer Name: ") + &match host.into_string() {
+                    Ok(s) => s,
+                    _ => String::from("N/A")
+                };
+
+                self.ui_items.push(UIItem::Label(label));
                 self.ui_items.push(UIItem::ChangeMode(self.app_mode));
                 
                 if let AppMode::Server =  &self.app_mode {
@@ -244,7 +246,7 @@ impl App {
             }
             AppState::WaitingForConnection(server) => {
                 if let Some(stream) = server.try_get_stream() {
-                    self.app_state = AppState::ServerConnected(pairing::ServerConnected(stream));
+                    self.app_state = AppState::ServerConnected(pairing::ServerConnected::new(stream));
                 }
                 else {
                     self.ui_items.push(UIItem::Cancel);

@@ -1,8 +1,9 @@
+use core::str;
 use std::{collections::HashSet, net::SocketAddr, str::FromStr, sync::{Arc, RwLock}, time::Duration};
 
 use network_interface::NetworkInterface;
 use serde_json::json;
-use tokio::{net::{TcpListener, TcpStream, UdpSocket}, time::sleep};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream, UdpSocket}, time::sleep};
 
 use crate::ScopedRoutine;
 
@@ -170,5 +171,107 @@ impl PairingClient {
 }
 
 
-pub struct ServerConnected(pub TcpStream);
-pub struct ClientConnected(pub TcpStream);
+pub struct ServerConnected;
+pub struct ClientConnected;
+
+impl ServerConnected {
+    pub fn new(stream: TcpStream) -> Self {
+        tokio::spawn(async move {
+            let mut stream = stream;
+            let mut buff: [u8; 1024] = [0; 1024];
+            let mut cnt: u32 = 0;
+            let mut str_buff = String::new();
+
+            loop {
+                let read = stream.read(&mut buff).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+
+                for c in &buff[..read] {
+                    str_buff.push(*c as char);
+
+                    if *c == b'{' {
+                        cnt += 1;
+                    }
+                    if *c == b'}' {
+                        cnt -= 1;
+                    }
+
+                    if cnt == 0 {
+                        ServerConnected::handle_req(&mut stream, &str_buff).await;
+                        str_buff.clear();
+                    }
+                }
+            }
+        });
+
+        ServerConnected
+    }
+
+    async fn handle_req(stream: &mut TcpStream, req: &str) {
+        let json = serde_json::Value::from_str(req).unwrap();
+
+        stream.write(json.to_string().as_bytes()).await.unwrap();
+    }
+
+}
+
+impl ClientConnected {
+    pub fn new(stream: TcpStream) -> Self {
+        tokio::spawn(async move {
+            let mut stream = stream;
+
+            let host = hostname::get().unwrap();
+            let host = host.to_str().unwrap();
+
+            let id_req = json!({
+                "subject": "introduction",
+                "name": host
+            });
+
+            let resp = ClientConnected::make_request(id_req, &mut stream).await;
+
+            println!("resp: {}", resp.to_string());
+        });
+
+        ClientConnected
+    }
+
+    async fn make_request(req: serde_json::Value, stream: &mut TcpStream) ->serde_json::Value {
+        let str = req.to_string();
+        stream.write(str.as_bytes()).await.unwrap();
+
+        let mut resp = String::new();
+        let mut buff: [u8; 1024] = [0; 1024];
+        let mut cnt: u32 = 0;
+
+        loop {
+            let read = stream.read(&mut buff).await.unwrap();
+            if read == 0 {
+                break;
+            }
+
+            for c in &buff[..read] {
+                resp.push(*c as char);
+                if *c == b'{' {
+                    cnt += 1;
+                }
+                if *c == b'}' {
+                    cnt -= 1;
+                }
+
+                if cnt == 0 {
+                    break;
+                }
+            }
+
+            if cnt == 0 {
+                break;
+            }
+        }
+
+        let resp = serde_json::Value::from_str(&resp).unwrap();
+        resp
+    }
+}
