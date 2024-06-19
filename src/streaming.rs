@@ -1,8 +1,8 @@
-use std::{collections::VecDeque, mem::size_of, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{collections::{HashMap, VecDeque}, mem::size_of, net::SocketAddr, str::FromStr, sync::{Arc, Weak}};
 
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener, sync::{Mutex, RwLock}};
 
-use crate::{files::{self, FileChunk}, ScopedRoutine};
+use crate::{files::{self, FileChunk}, utils::{self, FileData}, ScopedRoutine};
 
 pub struct Sender {
     file_reader: Arc<files::FileReader>,
@@ -97,7 +97,7 @@ impl Receiver {
         }
     }
 
-    pub async fn receive(&self, sender: tokio::sync::watch::Sender<(u64, u64, f64)>) {
+    pub async fn receive(&self, id: u32, sender: tokio::sync::watch::Sender<(u64, u64, f64)>) {
         let writer = self.file_writer.clone();
         let writer_clone = writer.clone();
 
@@ -129,6 +129,7 @@ impl Receiver {
             tokio::spawn(async move {
                 let sock = tokio::net::TcpSocket::new_v4().unwrap();
                 let mut stream = sock.connect(addr).await.unwrap();
+                stream.write_u32(id).await.unwrap();
 
                 loop {
                     let offset : Option<u64> = {
@@ -219,7 +220,7 @@ impl Receiver {
                                 }
                             };
 
-                            sender.send((*bytes_received, file_size, speed)).unwrap();
+                            let _ = sender.send((*bytes_received, file_size, speed));
                         }
 
                         if read < size {
@@ -244,5 +245,65 @@ impl Receiver {
         }
 
         semaphore.acquire_many(num_sockets as u32 + 1).await.unwrap();
+    }
+}
+
+
+pub struct FileStreamManager(Arc<Vec<utils::FileData>>);
+
+impl FileStreamManager {
+    pub fn new(listener: TcpListener, files: Vec<utils::FileData>) -> Self {
+        let files = Arc::new(files);
+        let files_clone = files.clone();
+
+        tokio::spawn(async move {
+            let files = files_clone;
+            let mut readers = HashMap::<u32, Weak<files::FileReader>>::new();
+
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+
+                let file_id = stream.read_u32().await.unwrap();
+                let file_data = &files[file_id as usize];
+
+                let reader = readers.get(&file_id);
+
+                let reader = match reader {
+                    Some(reader) => reader.upgrade(),
+                    None => {
+                        let root = utils::get_root_dir();
+                        let absolute_path = root.join(&file_data.relative_path);
+                        let absolute_path = absolute_path.to_str().unwrap();
+                        let reader = files::FileReader::new(absolute_path);
+                        let reader = Arc::new(reader);
+                        readers.insert(file_id, Arc::downgrade(&reader));
+
+                        Some(reader)
+                    }
+                };
+
+                if let Some(reader) = reader {
+                    tokio::spawn(async move {
+                        loop {
+                            let chunk = reader.get_chunk().await;
+    
+                            if let Some(chunk) = chunk {
+                                let packed = chunk.pack();
+                                stream.write(&packed).await.unwrap();
+                            }
+                            else {
+                                break;
+                            }
+                        }
+                    });
+                }
+            }
+        });
+
+        FileStreamManager(files)
+    }
+
+    pub fn get_files(&self) -> &Vec<FileData> {
+        &*self.0
     }
 }

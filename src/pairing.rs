@@ -5,7 +5,7 @@ use network_interface::NetworkInterface;
 use serde_json::json;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream, UdpSocket}, time::sleep};
 
-use crate::{utils::{self, FileData}, ScopedRoutine};
+use crate::{files, streaming, utils::{self, FileData}, ScopedRoutine};
 
 struct PairingServerUDP(std::sync::mpsc::Receiver<bool>, tokio::sync::watch::Sender<bool>);
 
@@ -174,7 +174,7 @@ impl PairingClient {
 pub struct ServerConnected;
 pub struct ClientConnected;
 
-type ServerPayload = (TcpListener, Vec<FileData>);
+type ServerPayload = (u16, streaming::FileStreamManager);
 
 impl ServerConnected {
     pub fn new(stream: TcpStream) -> Self {
@@ -185,9 +185,11 @@ impl ServerConnected {
             let mut str_buff = String::new();
 
             let data_listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
+            let port = data_listener.local_addr().unwrap().port();
 
             let file_list = utils::get_files();
-            let mut payload = (data_listener, file_list);
+            let file_stream_manager = streaming::FileStreamManager::new(data_listener, file_list);
+            let mut payload = (port, file_stream_manager);
 
             loop {
                 let read = stream.read(&mut buff).await.unwrap();
@@ -232,7 +234,7 @@ impl ServerConnected {
         }
 
         if subject == "file_list" {
-            let file_list: Vec<serde_json::Value> = payload.1.iter().map(|x| {
+            let file_list: Vec<serde_json::Value> = payload.1.get_files().iter().map(|x| {
                 let path = String::from(x.relative_path.to_str().unwrap());
                 let size = x.size;
                 json!({
@@ -241,7 +243,7 @@ impl ServerConnected {
                 })
             }).collect();
 
-            let port = payload.0.local_addr().unwrap().port();
+            let port = payload.0;
 
             json = json!({
                 "data_port": port,
@@ -276,7 +278,44 @@ impl ClientConnected {
             
             let resp = ClientConnected::make_request(file_list, &mut stream).await;
             
-            println!("File List: {}", resp.to_string());
+            let data_port = resp["data_port"].as_u64().unwrap() as u16;
+            let files: Vec<FileData> = resp["file_list"].as_array().unwrap().iter().map(|x| {
+                let path = x["path"].as_str().unwrap();
+                let size = x["size"].as_u64().unwrap();
+
+                let path = std::path::PathBuf::from_str(path).unwrap();
+
+                FileData {
+                    relative_path: path,
+                    size: size
+                }
+            }).collect();
+
+            let root = String::from(utils::get_root_dir().to_str().unwrap());
+            let file = &files[0];
+            let file_path = file.relative_path.to_str().unwrap();
+            let writer = files::FileWriter::new(&root, file_path, file.size);
+
+            let ip = stream.peer_addr().unwrap().ip();
+            let socket_addr = SocketAddr::new(ip, data_port);
+            let receiver = streaming::Receiver::new(writer, socket_addr);
+
+            let (sender_ch, mut receiver_ch) = tokio::sync::watch::channel::<(u64, u64, f64)>((0,0,0.0));
+            
+            tokio::spawn(async move {
+                receiver.receive(0, sender_ch).await;
+            });
+
+            loop {
+                receiver_ch.changed().await.unwrap();
+                let prog = &*receiver_ch.borrow_and_update();
+
+                println!("progress: {}/{}: {}", prog.0, prog.1, prog.2);
+
+                if prog.0 >= prog.1 {
+                    break;
+                }
+            }
         });
 
         ClientConnected

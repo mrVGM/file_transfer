@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use ratatui::{style::{Color, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
-use tokio::net::TcpStream;
 
 use crate::pairing::{self, PairingClient, PairingServer};
 
