@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use ratatui::{style::{Color, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
 
-use crate::{pairing::{self, PairingClient, PairingServer}, BytesDisplay};
+use crate::{pairing::{self, PairingClient, PairingServer}, BytesDisplay, FilePathDisplay};
 
 pub enum InputCommand {
     None,
@@ -263,7 +263,7 @@ impl App {
                     self.ui_items.push(UIItem::Label(format!("Total progress {}/{}", prog.0, prog.1)));
                 }
             }
-            AppState::ClientConnected(pairing::ClientConnected(progress)) => {
+            AppState::ClientConnected(pairing::ClientConnected(progress, file_paths)) => {
                 self.ui_items.push(UIItem::Quit);
                 {
                     let prog = &*progress.1.read().unwrap();
@@ -272,8 +272,10 @@ impl App {
 
                 let prog = &*progress.0.read().unwrap();
 
+                let file_paths = &*file_paths.read().unwrap();
                 for (id, prog) in prog {
-                    self.ui_items.push(UIItem::Label(format!("file {}: {}/{} {}/s", id, BytesDisplay(prog.0), BytesDisplay(prog.1), BytesDisplay(prog.2 as u64))));
+                    let file_path = &file_paths[*id as usize];
+                    self.ui_items.push(UIItem::Label(format!("{}: {}/{} {}/s", FilePathDisplay(file_path), BytesDisplay(prog.0), BytesDisplay(prog.1), BytesDisplay(prog.2 as u64))));
                 }
                 
             }

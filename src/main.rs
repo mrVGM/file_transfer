@@ -29,7 +29,6 @@ impl Drop for ScopedRoutine {
 }
 
 pub struct BytesDisplay(u64);
-
 impl Display for BytesDisplay {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0 < 1024 {
@@ -70,6 +69,21 @@ impl Display for BytesDisplay {
         }
     }
 }
+
+pub struct FilePathDisplay<'a>(&'a str);
+impl<'a> Display for FilePathDisplay<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let character_limit: u8 = 100;
+        let len = self.0.len();
+        if len <= character_limit as usize {
+            write!(f, "{}", self.0)
+        }
+        else {
+            write!(f, "...{}", &self.0[len - character_limit as usize..])
+        }
+    }
+}
+
 
 
 fn get_event() -> ui::InputCommand {

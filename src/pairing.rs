@@ -173,7 +173,7 @@ impl PairingClient {
 
 pub type StreamProgress = (std::sync::RwLock<HashMap<u32, (u64, u64, f64)>>, std::sync::RwLock<(u32, u32)>);
 pub struct ServerConnected(pub Arc<StreamProgress>);
-pub struct ClientConnected(pub Arc<StreamProgress>);
+pub struct ClientConnected(pub Arc<StreamProgress>, pub Arc<RwLock<Vec<String>>>);
 
 type ServerPayload = (u16, streaming::FileStreamManager);
 
@@ -276,6 +276,9 @@ impl ServerConnected {
 
 impl ClientConnected {
     pub fn new(stream: TcpStream) -> Self {
+        let file_paths = Arc::new(std::sync::RwLock::new(Vec::<String>::new()));
+        let file_paths_clone = file_paths.clone();
+
         let progress: StreamProgress = (
             std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()),
             std::sync::RwLock::new((0 as u32, 0 as u32)));
@@ -314,6 +317,13 @@ impl ClientConnected {
                     size: size
                 }
             }).collect();
+
+            {
+                let file_paths = &mut *file_paths.write().unwrap();
+                *file_paths = files.iter().map(|f| {
+                    String::from(f.relative_path.to_str().unwrap())
+                }).collect();
+            }
 
             {
                 let total_progress = &mut *progress_clone.1.write().unwrap();
@@ -379,7 +389,7 @@ impl ClientConnected {
             downloaded.acquire_many(files.len() as u32).await.unwrap();
         });
 
-        ClientConnected(progress)
+        ClientConnected(progress, file_paths_clone)
     }
 
     async fn make_request(req: serde_json::Value, stream: &mut TcpStream) -> serde_json::Value {
