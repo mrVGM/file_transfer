@@ -200,7 +200,7 @@ impl Receiver {
                             *bytes_received += bytes as u64;
                             samples.push_back((*bytes_received, std::time::SystemTime::now()));
                             
-                            while samples.len() > 10 {
+                            while samples.len() > 100 {
                                 samples.pop_front();
                             }
 
