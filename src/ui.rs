@@ -245,7 +245,12 @@ impl App {
             }
             AppState::WaitingForConnection(server) => {
                 if let Some(stream) = server.try_get_stream() {
-                    self.app_state = AppState::ServerConnected(pairing::ServerConnected::new(stream));
+                    let server_connected = pairing::ServerConnected::new();
+                    self.app_state = AppState::ServerConnected(server_connected);
+
+                    if let AppState::ServerConnected(server_connected) = &self.app_state {
+                        server_connected.start(stream);
+                    }
                 }
                 else {
                     self.ui_items.push(UIItem::Cancel);

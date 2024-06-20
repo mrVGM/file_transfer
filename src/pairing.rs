@@ -178,13 +178,9 @@ pub struct ClientConnected(pub Arc<StreamProgress>);
 type ServerPayload = (u16, streaming::FileStreamManager);
 
 impl ServerConnected {
-    pub fn new(stream: TcpStream) -> Self {
-        let progress: StreamProgress = (
-            std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()),
-            std::sync::RwLock::new((0 as u32, 0 as u32)));
 
-        let progress = Arc::new(progress);
-        let progress_clone = progress.clone();
+    pub fn start(&self, stream: TcpStream) {
+        let progress = self.0.clone();
 
         tokio::spawn(async move {
             let mut stream = stream;
@@ -198,11 +194,11 @@ impl ServerConnected {
             let file_list = utils::get_files();
 
             {
-                let progress = &mut *progress_clone.1.write().unwrap();
+                let progress = &mut *progress.1.write().unwrap();
                 progress.1 = file_list.len() as u32;
             }
 
-            let file_stream_manager = streaming::FileStreamManager::new(data_listener, file_list, progress_clone);
+            let file_stream_manager = streaming::FileStreamManager::new(data_listener, file_list, progress);
             let mut payload = (port, file_stream_manager);
 
             loop {
@@ -228,7 +224,15 @@ impl ServerConnected {
                 }
             }
         });
+    }
 
+    pub fn new() -> Self {
+        let progress: StreamProgress = (
+            std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()),
+            std::sync::RwLock::new((0 as u32, 0 as u32)));
+        
+        let progress = Arc::new(progress);
+        
         ServerConnected(progress)
     }
 
