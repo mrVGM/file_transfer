@@ -255,7 +255,12 @@ impl App {
                 self.ui_items.push(UIItem::Quit);
             }
             AppState::ClientConnected(pairing::ClientConnected(progress)) => {
-                let prog = &*progress.read().unwrap();
+                {
+                    let prog = &*progress.1.read().unwrap();
+                    self.ui_items.push(UIItem::Label(format!("Total progress {}/{}", prog.0, prog.1)));
+                }
+
+                let prog = &*progress.0.read().unwrap();
 
                 for (id, prog) in prog {
                     self.ui_items.push(UIItem::Label(format!("file {}: {}/{} {}", id, prog.0, prog.1, prog.2)));

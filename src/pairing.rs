@@ -1,5 +1,5 @@
 use core::str;
-use std::{collections::{HashMap, HashSet}, net::SocketAddr, path::Path, str::FromStr, sync::{Arc, RwLock}, time::Duration};
+use std::{collections::{HashMap, HashSet}, net::SocketAddr, os::windows::process, path::Path, str::FromStr, sync::{Arc, RwLock}, time::Duration};
 
 use network_interface::NetworkInterface;
 use serde_json::json;
@@ -171,8 +171,9 @@ impl PairingClient {
 }
 
 
+type StreamProgress = (std::sync::RwLock<HashMap<u32, (u64, u64, f64)>>, std::sync::RwLock<(u32, u32)>);
 pub struct ServerConnected;
-pub struct ClientConnected(pub Arc<std::sync::RwLock<HashMap<u32, (u64, u64, f64)>>>);
+pub struct ClientConnected(pub Arc<StreamProgress>);
 
 type ServerPayload = (u16, streaming::FileStreamManager);
 
@@ -258,7 +259,11 @@ impl ServerConnected {
 
 impl ClientConnected {
     pub fn new(stream: TcpStream) -> Self {
-        let progress = Arc::new(std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()));
+        let progress: StreamProgress = (
+            std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()),
+            std::sync::RwLock::new((0 as u32, 0 as u32)));
+
+        let progress = Arc::new(progress);
         let progress_clone = progress.clone();
 
         tokio::spawn(async move {
@@ -293,7 +298,14 @@ impl ClientConnected {
                 }
             }).collect();
 
+            {
+                let total_progress = &mut *progress_clone.1.write().unwrap();
+                total_progress.1 = files.len() as u32;
+            }
+
             let simultaneous_downloads = Arc::new(Semaphore::new(4));
+
+            let downloaded = Arc::new(Semaphore::new(0));
 
             for id in 0..files.len() as u32 {
                 let simultaneous_downloads = simultaneous_downloads.clone();
@@ -317,6 +329,8 @@ impl ClientConnected {
                     simultaneous_downloads.add_permits(1);
                 });
                 
+                let downloaded = downloaded.clone();
+
                 tokio::spawn(async move {
                     loop {
                         let changed = receiver_ch.changed().await;
@@ -325,18 +339,29 @@ impl ClientConnected {
                         }
                         let prog = &*receiver_ch.borrow_and_update();
                         
-                        let map = &mut *progress.write().unwrap();
+                        let map = &mut *progress.0.write().unwrap();
                         map.insert(id, *prog);
                         
                         if prog.0 >= prog.1 {
                             break;
                         }
                     }
+
+                    downloaded.add_permits(1);
+
+                    {
+                        let total_progress = &mut *progress.1.write().unwrap();
+                        total_progress.0 += 1;
+                    }
                     
-                    let map = &mut *progress.write().unwrap();
+                    let map = &mut *progress.0.write().unwrap();
                     map.remove(&id);
                 });
             }
+
+            downloaded.acquire_many(files.len() as u32).await.unwrap();
+
+            println!("Done");
         });
 
         ClientConnected(progress)
