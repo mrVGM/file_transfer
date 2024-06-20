@@ -257,13 +257,14 @@ impl App {
                 }
             }
             AppState::ServerConnected(pairing::ServerConnected(progress)) => {
+                self.ui_items.push(UIItem::Quit);
                 {
                     let prog = &*progress.1.read().unwrap();
                     self.ui_items.push(UIItem::Label(format!("Total progress {}/{}", prog.0, prog.1)));
                 }
-                self.ui_items.push(UIItem::Quit);
             }
             AppState::ClientConnected(pairing::ClientConnected(progress)) => {
+                self.ui_items.push(UIItem::Quit);
                 {
                     let prog = &*progress.1.read().unwrap();
                     self.ui_items.push(UIItem::Label(format!("Total progress {}/{}", prog.0, prog.1)));
@@ -274,8 +275,7 @@ impl App {
                 for (id, prog) in prog {
                     self.ui_items.push(UIItem::Label(format!("file {}: {}/{} {}", id, prog.0, prog.1, prog.2)));
                 }
-
-                self.ui_items.push(UIItem::Quit);
+                
             }
         }
 
