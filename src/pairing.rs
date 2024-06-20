@@ -319,7 +319,10 @@ impl ClientConnected {
                 
                 tokio::spawn(async move {
                     loop {
-                        receiver_ch.changed().await.unwrap();
+                        let changed = receiver_ch.changed().await;
+                        if let Err(_) = changed {
+                            break;
+                        }
                         let prog = &*receiver_ch.borrow_and_update();
                         
                         let map = &mut *progress.write().unwrap();
