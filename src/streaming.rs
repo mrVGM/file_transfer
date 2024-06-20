@@ -213,7 +213,6 @@ impl Receiver {
                                     let last = samples.back().unwrap();
 
                                     let mut diff = (last.0 - fst.0) as f64;
-                                    diff /= (1024 * 1024) as f64;
                                     let mut time_diff = last.1.duration_since(fst.1).unwrap().as_millis() as f64;
                                     time_diff /= 1000.0;
                                     diff / time_diff

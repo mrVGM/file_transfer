@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use ratatui::{style::{Color, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
 
-use crate::pairing::{self, PairingClient, PairingServer};
+use crate::{pairing::{self, PairingClient, PairingServer}, BytesDisplay};
 
 pub enum InputCommand {
     None,
@@ -273,7 +273,7 @@ impl App {
                 let prog = &*progress.0.read().unwrap();
 
                 for (id, prog) in prog {
-                    self.ui_items.push(UIItem::Label(format!("file {}: {}/{} {}", id, prog.0, prog.1, prog.2)));
+                    self.ui_items.push(UIItem::Label(format!("file {}: {}/{} {}/s", id, BytesDisplay(prog.0), BytesDisplay(prog.1), BytesDisplay(prog.2 as u64))));
                 }
                 
             }

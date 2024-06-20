@@ -1,4 +1,4 @@
-use std::{io::stdout, net::SocketAddr, str::FromStr, time::Duration};
+use std::{fmt::Display, io::stdout, net::SocketAddr, str::FromStr, time::Duration};
 
 use tokio::time::sleep;
 
@@ -25,6 +25,49 @@ impl ScopedRoutine {
 impl Drop for ScopedRoutine {
     fn drop(&mut self) {
         self.0.abort();
+    }
+}
+
+pub struct BytesDisplay(u64);
+
+impl Display for BytesDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 < 1024 {
+            return write!(f, "{}B", self.0)
+        }
+
+        {
+            let divisor = 1024 as u64;
+            let kbs = self.0 / divisor;
+            if kbs < 1024 {
+                let reminder = self.0 - kbs * divisor;
+                let reminder = reminder as f64 / divisor as f64;
+                let reminder = (100.0 * reminder).round() / 100.0;
+                return write!(f, "{}KB", kbs as f64 + reminder)
+            }
+        }
+
+        {
+
+            let divisor = 1024 * 1024 as u64;
+            let mbs = self.0 / divisor;
+            if mbs < 1024 {
+                let reminder = self.0 - mbs * divisor;
+                let reminder = reminder as f64 / divisor as f64;
+                let reminder = (100.0 * reminder).round() / 100.0;
+                return write!(f, "{}MB", mbs as f64 + reminder)
+            }
+        }
+
+        {
+
+            let divisor = 1024 * 1024 * 1024 as u64;
+            let gbs = self.0 / divisor;
+            let reminder = self.0 - gbs * divisor;
+            let reminder = reminder as f64 / divisor as f64;
+            let reminder = (100.0 * reminder).round() / 100.0;
+            return write!(f, "{}GB", gbs as f64 + reminder)
+        }
     }
 }
 
