@@ -1,8 +1,8 @@
-use std::{collections::{HashMap, VecDeque}, mem::size_of, net::SocketAddr, str::FromStr, sync::{Arc, Weak}};
+use std::{collections::{HashMap, HashSet, VecDeque}, mem::size_of, net::SocketAddr, str::FromStr, sync::{Arc, Weak}};
 
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener, sync::{Mutex, RwLock}};
 
-use crate::{files::{self, FileChunk}, utils::{self, FileData}, ScopedRoutine};
+use crate::{files::{self, FileChunk}, pairing::StreamProgress, utils::{self, FileData}, ScopedRoutine};
 
 pub struct Sender {
     file_reader: Arc<files::FileReader>,
@@ -249,25 +249,63 @@ impl Receiver {
 }
 
 
-pub struct FileStreamManager(Arc<Vec<utils::FileData>>);
+pub struct FileStreamManager(Arc<Vec<utils::FileData>>, Arc<StreamProgress>);
 
 impl FileStreamManager {
-    pub fn new(listener: TcpListener, files: Vec<utils::FileData>) -> Self {
+    pub fn new(listener: TcpListener, files: Vec<utils::FileData>, progress: Arc<StreamProgress>) -> Self {
         let files = Arc::new(files);
         let files_clone = files.clone();
 
+        let progress_clone = progress.clone();
+
+        enum FileStreamState {
+            Start(u32),
+            Finish(u32)
+        }
+
+        let (mut send_ch, mut recv_ch) = tokio::sync::mpsc::channel::<FileStreamState>(200);
+        tokio::spawn(async move {
+
+            let mut current = HashSet::<u32>::new();
+
+            loop {
+                let res = recv_ch.recv().await;
+
+                if let Some(res) = &res {
+                    match res {
+                        FileStreamState::Start(id) => {
+                            current.insert(*id);
+                        }
+                        FileStreamState::Finish(id) => {
+                            if current.contains(id) {
+                                let total_progress = &mut *progress.1.write().unwrap();
+                                total_progress.0 += 1;
+                            }
+                            current.remove(id);
+                        }
+                    }
+                }
+            }
+
+        });
+
+        let send_ch = Arc::new(send_ch);
         tokio::spawn(async move {
             let files = files_clone;
             let mut readers = HashMap::<u32, Weak<files::FileReader>>::new();
 
             loop {
+                let send_ch = send_ch.clone();
+                
                 let (mut stream, _) = listener.accept().await.unwrap();
-
+                
                 let file_id = stream.read_u32().await.unwrap();
                 let file_data = &files[file_id as usize];
-
+                
+                send_ch.send(FileStreamState::Start(file_id)).await;
+                
                 let reader = readers.get(&file_id);
-
+                
                 let reader = match reader {
                     Some(reader) => reader.upgrade(),
                     None => {
@@ -277,16 +315,17 @@ impl FileStreamManager {
                         let reader = files::FileReader::new(absolute_path);
                         let reader = Arc::new(reader);
                         readers.insert(file_id, Arc::downgrade(&reader));
-
+                        
                         Some(reader)
                     }
                 };
-
+                
                 if let Some(reader) = reader {
+
                     tokio::spawn(async move {
                         loop {
                             let chunk = reader.get_chunk().await;
-    
+                            
                             if let Some(chunk) = chunk {
                                 let packed = chunk.pack();
                                 stream.write(&packed).await.unwrap();
@@ -295,14 +334,15 @@ impl FileStreamManager {
                                 break;
                             }
                         }
+                        send_ch.send(FileStreamState::Finish(file_id)).await;
                     });
                 }
             }
         });
-
-        FileStreamManager(files)
+        
+        FileStreamManager(files, progress_clone)
     }
-
+    
     pub fn get_files(&self) -> &Vec<FileData> {
         &*self.0
     }

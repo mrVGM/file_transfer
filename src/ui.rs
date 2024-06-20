@@ -251,7 +251,11 @@ impl App {
                     self.ui_items.push(UIItem::Cancel);
                 }
             }
-            AppState::ServerConnected(_) => {
+            AppState::ServerConnected(pairing::ServerConnected(progress)) => {
+                {
+                    let prog = &*progress.1.read().unwrap();
+                    self.ui_items.push(UIItem::Label(format!("Total progress {}/{}", prog.0, prog.1)));
+                }
                 self.ui_items.push(UIItem::Quit);
             }
             AppState::ClientConnected(pairing::ClientConnected(progress)) => {

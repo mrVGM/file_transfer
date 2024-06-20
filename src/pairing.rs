@@ -171,14 +171,21 @@ impl PairingClient {
 }
 
 
-type StreamProgress = (std::sync::RwLock<HashMap<u32, (u64, u64, f64)>>, std::sync::RwLock<(u32, u32)>);
-pub struct ServerConnected;
+pub type StreamProgress = (std::sync::RwLock<HashMap<u32, (u64, u64, f64)>>, std::sync::RwLock<(u32, u32)>);
+pub struct ServerConnected(pub Arc<StreamProgress>);
 pub struct ClientConnected(pub Arc<StreamProgress>);
 
 type ServerPayload = (u16, streaming::FileStreamManager);
 
 impl ServerConnected {
     pub fn new(stream: TcpStream) -> Self {
+        let progress: StreamProgress = (
+            std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()),
+            std::sync::RwLock::new((0 as u32, 0 as u32)));
+
+        let progress = Arc::new(progress);
+        let progress_clone = progress.clone();
+
         tokio::spawn(async move {
             let mut stream = stream;
             let mut buff: [u8; 1024] = [0; 1024];
@@ -189,7 +196,13 @@ impl ServerConnected {
             let port = data_listener.local_addr().unwrap().port();
 
             let file_list = utils::get_files();
-            let file_stream_manager = streaming::FileStreamManager::new(data_listener, file_list);
+
+            {
+                let progress = &mut *progress_clone.1.write().unwrap();
+                progress.1 = file_list.len() as u32;
+            }
+
+            let file_stream_manager = streaming::FileStreamManager::new(data_listener, file_list, progress_clone);
             let mut payload = (port, file_stream_manager);
 
             loop {
@@ -216,7 +229,7 @@ impl ServerConnected {
             }
         });
 
-        ServerConnected
+        ServerConnected(progress)
     }
 
     async fn handle_req(stream: &mut TcpStream, req: &str, payload: &mut ServerPayload) {
@@ -360,8 +373,6 @@ impl ClientConnected {
             }
 
             downloaded.acquire_many(files.len() as u32).await.unwrap();
-
-            println!("Done");
         });
 
         ClientConnected(progress)
