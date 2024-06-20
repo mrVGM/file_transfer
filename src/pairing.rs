@@ -1,11 +1,11 @@
 use core::str;
-use std::{collections::HashSet, net::SocketAddr, path::Path, str::FromStr, sync::{Arc, RwLock}, time::Duration};
+use std::{collections::{HashMap, HashSet}, net::SocketAddr, path::Path, str::FromStr, sync::{Arc, RwLock}, time::Duration};
 
 use network_interface::NetworkInterface;
 use serde_json::json;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream, UdpSocket}, time::sleep};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream, UdpSocket}, sync::Semaphore, time::sleep};
 
-use crate::{files, streaming, utils::{self, FileData}, ScopedRoutine};
+use crate::{files::{self, FileWriter}, streaming, utils::{self, FileData}, ScopedRoutine};
 
 struct PairingServerUDP(std::sync::mpsc::Receiver<bool>, tokio::sync::watch::Sender<bool>);
 
@@ -97,7 +97,7 @@ pub struct PairingServer(ConnectionListener, PairingServerUDP);
 impl PairingServer {
     pub fn new() -> Self {
         let connection_listener = ConnectionListener::new();
-        let pairing_server_udp = PairingServerUDP::new(connection_listener.0);
+        let pairing_server_udp: PairingServerUDP = PairingServerUDP::new(connection_listener.0);
 
         PairingServer(connection_listener, pairing_server_udp)
     }
@@ -172,7 +172,7 @@ impl PairingClient {
 
 
 pub struct ServerConnected;
-pub struct ClientConnected;
+pub struct ClientConnected(pub Arc<std::sync::RwLock<HashMap<u32, (u64, u64, f64)>>>);
 
 type ServerPayload = (u16, streaming::FileStreamManager);
 
@@ -258,6 +258,9 @@ impl ServerConnected {
 
 impl ClientConnected {
     pub fn new(stream: TcpStream) -> Self {
+        let progress = Arc::new(std::sync::RwLock::new(HashMap::<u32, (u64, u64, f64)>::new()));
+        let progress_clone = progress.clone();
+
         tokio::spawn(async move {
             let mut stream = stream;
 
@@ -270,7 +273,6 @@ impl ClientConnected {
             });
 
             let resp = ClientConnected::make_request(id_req, &mut stream).await;
-            println!("resp: {}", resp.to_string());
             
             let file_list = json!({
                 "subject": "file_list"
@@ -291,34 +293,50 @@ impl ClientConnected {
                 }
             }).collect();
 
-            let root = String::from(utils::get_root_dir().to_str().unwrap());
-            let file = &files[0];
-            let file_path = file.relative_path.to_str().unwrap();
-            let writer = files::FileWriter::new(&root, file_path, file.size);
+            let simultaneous_downloads = Arc::new(Semaphore::new(4));
 
-            let ip = stream.peer_addr().unwrap().ip();
-            let socket_addr = SocketAddr::new(ip, data_port);
-            let receiver = streaming::Receiver::new(writer, socket_addr);
-
-            let (sender_ch, mut receiver_ch) = tokio::sync::watch::channel::<(u64, u64, f64)>((0,0,0.0));
-            
-            tokio::spawn(async move {
-                receiver.receive(0, sender_ch).await;
-            });
-
-            loop {
-                receiver_ch.changed().await.unwrap();
-                let prog = &*receiver_ch.borrow_and_update();
-
-                println!("progress: {}/{}: {}", prog.0, prog.1, prog.2);
-
-                if prog.0 >= prog.1 {
-                    break;
-                }
+            for id in 0..files.len() as u32 {
+                let simultaneous_downloads = simultaneous_downloads.clone();
+                let permit = simultaneous_downloads.acquire().await.unwrap();
+                permit.forget();
+                
+                let progress = progress_clone.clone();
+                let root = String::from(utils::get_root_dir().to_str().unwrap());
+                let file = &files[id as usize];
+                let file_path = file.relative_path.to_str().unwrap();
+                let writer = files::FileWriter::new(&root, file_path, file.size);
+                
+                let ip = stream.peer_addr().unwrap().ip();
+                let socket_addr = SocketAddr::new(ip, data_port);
+                let receiver = streaming::Receiver::new(writer, socket_addr);
+                
+                let (sender_ch, mut receiver_ch) = tokio::sync::watch::channel::<(u64, u64, f64)>((0,0,0.0));
+                
+                tokio::spawn(async move {
+                    receiver.receive(id, sender_ch).await;
+                    simultaneous_downloads.add_permits(1);
+                });
+                
+                tokio::spawn(async move {
+                    loop {
+                        receiver_ch.changed().await.unwrap();
+                        let prog = &*receiver_ch.borrow_and_update();
+                        
+                        let map = &mut *progress.write().unwrap();
+                        map.insert(id, *prog);
+                        
+                        if prog.0 >= prog.1 {
+                            break;
+                        }
+                    }
+                    
+                    let map = &mut *progress.write().unwrap();
+                    map.remove(&id);
+                });
             }
         });
 
-        ClientConnected
+        ClientConnected(progress)
     }
 
     async fn make_request(req: serde_json::Value, stream: &mut TcpStream) -> serde_json::Value {

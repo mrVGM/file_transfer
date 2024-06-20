@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, os::windows::process};
 
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use ratatui::{style::{Color, Stylize}, widgets::{Block, Borders, ListItem}, Frame};
@@ -254,7 +254,13 @@ impl App {
             AppState::ServerConnected(_) => {
                 self.ui_items.push(UIItem::Quit);
             }
-            AppState::ClientConnected(_) => {
+            AppState::ClientConnected(pairing::ClientConnected(progress)) => {
+                let prog = &*progress.read().unwrap();
+
+                for (id, prog) in prog {
+                    self.ui_items.push(UIItem::Label(format!("file {}: {}/{} {}", id, prog.0, prog.1, prog.2)));
+                }
+
                 self.ui_items.push(UIItem::Quit);
             }
         }
