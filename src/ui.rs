@@ -28,7 +28,7 @@ enum AppState {
     ClientConnected(pairing::ClientConnected)
 }
 
-struct ServerEntry(String, SocketAddr);
+struct ServerEntry(String);
 
 enum UIItem {
     Label(String),
@@ -208,7 +208,7 @@ impl App {
 
                     let name = match &self.server {
                         None => "N/A",
-                        Some(ServerEntry(name, _)) => &name
+                        Some(ServerEntry(name)) => &name
                     };
                     self.ui_items.push(UIItem::FindServer(String::from(name)));
                 }

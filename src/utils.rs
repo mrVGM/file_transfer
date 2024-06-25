@@ -46,7 +46,7 @@ pub fn get_root_dir() -> PathBuf {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
         let path_str = &*args[1];
-        let mut path = PathBuf::from_str(path_str).unwrap();
+        let path = PathBuf::from_str(path_str).unwrap();
         if path.is_absolute() {
             root_dir = path;
         }
