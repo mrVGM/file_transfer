@@ -14,3 +14,7 @@ Over a standard 1 Gbps connection in the local area netwotk, the file streaming 
 
 If you want to check the app out, you can compile it from source, provided that you have Rust and Cargo installed on your system.
 Having them set up, building the project is as simple as running 'cargo build' from the terminal.
+
+Here what the app looks like:
+
+![](https://mrvgm.github.io/misc/file_transfer.gif)
